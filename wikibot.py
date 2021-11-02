@@ -1,7 +1,9 @@
+from datetime import date
 from requests.adapters import Response
 import requests
 import sys
 import time
+
 
 import wiki_lib as wb
 import works
@@ -22,6 +24,7 @@ if confirm != "Y":
 Session = requests.Session()
 
 # 执行操作
+wb.login(Session)
 
 works.uma_music_update(Session)
 

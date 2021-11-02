@@ -1,4 +1,6 @@
 import requests
+from datetime import datetime
+import time
 
 import config
 
@@ -88,7 +90,7 @@ def edit_token(Session: requests.Session, title: str):
     return ret
 
 
-def edit_section(Session: requests.Session, title: str, section: int, text: str, summary: str, minor: bool = False):
+def edit_section(Session: requests.Session, title: str, section: int, text: str, summary: str, minor: bool = False, bot: bool = False):
     "编辑页面指定段落"
     # 操作确认
     print('----------Confirm------------')
@@ -131,6 +133,8 @@ def edit_section(Session: requests.Session, title: str, section: int, text: str,
     }
     if minor:
         parms['minor'] = True
+    if bot:
+        parms['bot'] = True
     response = Session.post(config.api_url, data=parms)
     data = response.json()
     if 'edit' in data and data['edit']['result'] == 'Success':
@@ -214,7 +218,56 @@ def get_text(Session: requests.Session, title: str):
     return data['parse']['text']['*']
 
 
-def new_section(Session: requests.Session, title: str, section_title: str, text: str, summary: str, minor: bool = False):
+def count_rev(Session: requests.Session, title: str, fromstamp: datetime = None, tostamp: datetime = None, user_list: set = set()):
+    "获取一个页面在某时间段内由多少用户进行了多少次编辑"
+    user_count = len(user_list)
+    edit_count = 0
+
+    parms = {
+        "action": "query",
+        "format": "json",
+        "prop": "revisions",
+        "titles": title,
+        "rvlimit": "max",
+    }
+
+    if fromstamp:
+        parms['rvend'] = str(int(fromstamp.timestamp()))
+
+    if tostamp:
+        parms['rvstart'] = str(int(tostamp.timestamp()))
+
+    response = Session.get(config.api_url, params=parms)
+    data = response.json()
+
+    key = list(data['query']['pages'].keys())[0]
+
+    for val in data['query']['pages'][key]['revisions']:
+        edit_count += 1
+        if not val['user'] in user_list:
+            user_count += 1
+            user_list.add(val['user'])
+
+    while "continue" in data:
+        time.sleep(1)
+        parms['rvcontinue'] = data['continue']['rvcontinue']
+        parms['continue'] = data['continue']['continue']
+
+        response = Session.get(config.api_url, params=parms)
+        data = response.json()
+
+        for val in data['query']['pages']['392634']['revisions']:
+            edit_count += 1
+            if not val['user'] in user_list:
+                user_count += 1
+                user_list.add(val['user'])
+
+    print("页面%s在指定时段内共有%d位用户编辑了%d次。" % (title, user_count, edit_count))
+
+    return user_list
+
+
+def new_section(Session: requests.Session, title: str, section_title: str, text: str, summary: str, minor: bool = False, bot: bool = False):
     "在指定页面添加新段落"
     # 操作确认
     print('----------Confirm------------')
@@ -258,6 +311,8 @@ def new_section(Session: requests.Session, title: str, section_title: str, text:
     }
     if minor:
         parms['minor'] = True
+    if bot:
+        parms['bot'] = True
     response = Session.post(config.api_url, data=parms)
     data = response.json()
     if 'edit' in data and data['edit']['result'] == 'Success':
@@ -267,3 +322,37 @@ def new_section(Session: requests.Session, title: str, section_title: str, text:
         print("编辑失败！")
         print(data)
         return False
+
+def in_category( Session:requests.Session, cat_title: str, namespace: str = "0" ):
+    "检查指定分类下的页面，返回一个由两个集合构成的元组：[0]为标题集合、[1]为页面id集合"
+
+    titles = set()
+    ids = set()
+
+    parms={
+        "format": "json",
+        "action": "query",
+        "list": "categorymembers",
+        "cmtitle": "Category:" + cat_title,
+        "cmnamespace": namespace,
+        "cmlimit": "max"
+    }
+
+    response = Session.get(config.api_url, params=parms)
+    data = response.json()
+
+    for val in data["query"]["categorymembers"]:
+        titles.add(val["title"])
+        ids.add(val["pageid"])
+
+    while "continue" in data:
+        parms["cmcontinue"] = data["continue"]["cmcontinue"]
+        parms["continue"] = data["continue"]["continue"]
+        response = Session.get(config.api_url, params=parms)
+        data = response.json()
+
+        for val in data["query"]["categorymembers"]:
+            titles.add(val["title"])
+            ids.add(val["pageid"])
+
+    return (titles, ids)
